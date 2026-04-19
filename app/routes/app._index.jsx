@@ -254,6 +254,17 @@ export default function Index() {
                 </p>
               </label>
 
+              <div style={fieldStyles}>
+                <span>Eligible offer source</span>
+                <div style={{ ...inputStyles, color: "#5c5f62" }}>
+                  Theme collection page products only, up to Rs 600
+                </div>
+                <p style={helpTextStyles}>
+                  Theme collection page se shopper product choose karega. App
+                  billing side par sirf marked item ko validate karegi.
+                </p>
+              </div>
+
               {fetcher.data?.error ? (
                 <s-banner tone="critical">
                   <p style={{ margin: 0 }}>{fetcher.data.error}</p>
@@ -283,8 +294,11 @@ export default function Index() {
                 Threshold: Rs {currentSettings.threshold}
               </p>
               <p style={helpTextStyles}>
-                Theme is responsible for deciding which offer item the shopper
+                Theme collection page decides which single offer item the shopper
                 picks.
+              </p>
+              <p style={helpTextStyles}>
+                Marked offer item price must be Rs 600 or below.
               </p>
             </div>
 
@@ -312,9 +326,9 @@ export default function Index() {
             <div style={cardStyles}>
               <s-heading>How billing works</s-heading>
               <p style={helpTextStyles}>
-                If non-offer cart subtotal is Rs {currentSettings.threshold}+,
-                the Shopify Discount Function reduces that marked offer line so
-                customer pays final Rs 1.
+                If non-offer cart subtotal is Rs {currentSettings.threshold}+ and
+                the marked collection-page item costs Rs 600 or less, the Shopify
+                Discount Function reduces that line so customer pays final Rs 1.
               </p>
             </div>
           </div>

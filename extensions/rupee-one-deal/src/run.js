@@ -2,6 +2,7 @@ import { DiscountApplicationStrategy } from "../generated/api";
 
 export const QUALIFYING_SUBTOTAL_THRESHOLD = 2999;
 export const ONE_RUPEE_FINAL_PRICE = 1.0;
+export const MAX_OFFER_UNIT_PRICE = 600;
 export const OFFER_TYPE_ATTRIBUTE = "unlock_offer";
 export const DEAL_MESSAGE = "Rs 1 Deal";
 
@@ -54,7 +55,9 @@ export function run(input) {
   }
 
   const offerLine = offerLines.find(
-    (line) => getLineUnitPrice(line) > ONE_RUPEE_FINAL_PRICE,
+    (line) =>
+      getLineUnitPrice(line) > ONE_RUPEE_FINAL_PRICE &&
+      getLineUnitPrice(line) <= MAX_OFFER_UNIT_PRICE,
   );
 
   if (!offerLine) {

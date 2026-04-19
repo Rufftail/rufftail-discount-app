@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   DEAL_MESSAGE,
+  MAX_OFFER_UNIT_PRICE,
   ONE_RUPEE_FINAL_PRICE,
   QUALIFYING_SUBTOTAL_THRESHOLD,
   run,
@@ -137,6 +138,28 @@ describe("rupee one deal function", () => {
             id: "offer-line",
             subtotal: 1,
             unitPrice: 1,
+            offerType: "unlock_offer",
+          }),
+        ],
+      },
+    });
+
+    expect(result.discounts).toEqual([]);
+  });
+
+  test("skips the discount when the marked offer item costs more than Rs 600", () => {
+    const result = run({
+      cart: {
+        lines: [
+          createCartLine({
+            id: "qualifying-line",
+            subtotal: QUALIFYING_SUBTOTAL_THRESHOLD + 500,
+            unitPrice: QUALIFYING_SUBTOTAL_THRESHOLD + 500,
+          }),
+          createCartLine({
+            id: "offer-line",
+            subtotal: MAX_OFFER_UNIT_PRICE + 1,
+            unitPrice: MAX_OFFER_UNIT_PRICE + 1,
             offerType: "unlock_offer",
           }),
         ],
