@@ -1,0 +1,31 @@
+query RunInput {
+  cart {
+    lines {
+      id
+      quantity
+      offerType: attribute(key: "_offer_type") {
+        value
+      }
+      cost {
+        subtotalAmount {
+          amount
+          currencyCode
+        }
+        amountPerQuantity {
+          amount
+          currencyCode
+        }
+      }
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+          title
+          product {
+            id
+          }
+        }
+      }
+    }
+  }
+}
