@@ -12,6 +12,7 @@ const DEFAULT_THRESHOLD = 2999;
 const MAX_OFFER_PRICE = 600;
 const FUNCTION_HANDLE = "rupee-one-deal";
 const DISCOUNT_TITLE = "Rufftail 1 Rs Deal";
+const PREFERRED_COLLECTION_TITLE = "Under ₹600 – Best Pet Deals";
 
 const pageStyles = {
   display: "grid",
@@ -92,6 +93,14 @@ function createFunctionConfiguration(settings) {
   };
 }
 
+function getPreferredCollection(collections) {
+  return (
+    collections.find(
+      (collection) => collection.title?.trim() === PREFERRED_COLLECTION_TITLE,
+    ) ?? null
+  );
+}
+
 async function queryJson(admin, query, variables = {}) {
   const response = await admin.graphql(query, { variables });
   return response.json();
@@ -115,7 +124,7 @@ async function loadDashboardData(admin) {
             jsonValue
           }
         }
-        collections(first: 100, sortKey: TITLE) {
+        collections(first: 250, sortKey: TITLE) {
           nodes {
             id
             title
@@ -133,10 +142,17 @@ async function loadDashboardData(admin) {
   const settings = parseSettings(
     data.data?.currentAppInstallation?.metafield?.jsonValue ?? null,
   );
+  const collections = data.data?.collections?.nodes ?? [];
+  const preferredCollection = getPreferredCollection(collections);
+
+  if (!settings.collectionId && preferredCollection) {
+    settings.collectionId = preferredCollection.id;
+    settings.collectionTitle = preferredCollection.title;
+  }
 
   return {
     appInstallationId: data.data?.currentAppInstallation?.id,
-    collections: data.data?.collections?.nodes ?? [],
+    collections,
     settings,
     shopName: data.data?.shop?.name ?? "your store",
   };
@@ -313,7 +329,8 @@ export const action = async ({ request }) => {
   const enabled = formData.get("enabled") === "on";
   const collectionId = String(formData.get("collectionId") || "");
   const selectedCollection =
-    dashboardData.collections.find((collection) => collection.id === collectionId) ?? null;
+    dashboardData.collections.find((collection) => collection.id === collectionId) ??
+    getPreferredCollection(dashboardData.collections);
 
   if (!Number.isFinite(thresholdValue) || thresholdValue < 1) {
     return {
