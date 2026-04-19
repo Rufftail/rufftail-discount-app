@@ -1,9 +1,17 @@
 query RunInput {
+  discountNode {
+    metafield(namespace: "$app:rupee-one-deal", key: "function-configuration") {
+      jsonValue
+    }
+  }
   cart {
     lines {
       id
       quantity
       offerType: attribute(key: "_offer_type") {
+        value
+      }
+      offerCollectionId: attribute(key: "_offer_collection_id") {
         value
       }
       cost {

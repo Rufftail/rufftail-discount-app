@@ -6,7 +6,12 @@ import { authenticate } from "../shopify.server";
 
 const SETTINGS_METAFIELD_KEY = "rupee_one_deal_settings";
 const SETTINGS_METAFIELD_NAMESPACE = "$app";
+const FUNCTION_CONFIG_KEY = "function-configuration";
+const FUNCTION_CONFIG_NAMESPACE = "$app:rupee-one-deal";
 const DEFAULT_THRESHOLD = 2999;
+const MAX_OFFER_PRICE = 600;
+const FUNCTION_HANDLE = "rupee-one-deal";
+const DISCOUNT_TITLE = "Rufftail 1 Rs Deal";
 
 const pageStyles = {
   display: "grid",
@@ -46,13 +51,20 @@ const helpTextStyles = {
   fontSize: "0.9rem",
 };
 
+function defaultSettings() {
+  return {
+    enabled: true,
+    threshold: DEFAULT_THRESHOLD,
+    collectionId: "",
+    collectionTitle: "",
+    discountId: "",
+    updatedAt: null,
+  };
+}
+
 function parseSettings(value) {
   if (!value) {
-    return {
-      enabled: true,
-      threshold: DEFAULT_THRESHOLD,
-      updatedAt: null,
-    };
+    return defaultSettings();
   }
 
   try {
@@ -61,20 +73,32 @@ function parseSettings(value) {
     return {
       enabled: parsed.enabled ?? true,
       threshold: Number(parsed.threshold ?? DEFAULT_THRESHOLD),
+      collectionId: parsed.collectionId ?? "",
+      collectionTitle: parsed.collectionTitle ?? "",
+      discountId: parsed.discountId ?? "",
       updatedAt: parsed.updatedAt ?? null,
     };
   } catch {
-    return {
-      enabled: true,
-      threshold: DEFAULT_THRESHOLD,
-      updatedAt: null,
-    };
+    return defaultSettings();
   }
+}
+
+function createFunctionConfiguration(settings) {
+  return {
+    enabled: settings.enabled,
+    threshold: settings.threshold,
+    collectionId: settings.collectionId,
+    maxOfferPrice: MAX_OFFER_PRICE,
+  };
 }
 
 async function queryJson(admin, query, variables = {}) {
   const response = await admin.graphql(query, { variables });
   return response.json();
+}
+
+function getFirstUserError(payload) {
+  return payload?.userErrors?.[0]?.message ?? null;
 }
 
 async function loadDashboardData(admin) {
@@ -91,6 +115,13 @@ async function loadDashboardData(admin) {
             jsonValue
           }
         }
+        collections(first: 100, sortKey: TITLE) {
+          nodes {
+            id
+            title
+            handle
+          }
+        }
       }
     `,
     {
@@ -105,47 +136,138 @@ async function loadDashboardData(admin) {
 
   return {
     appInstallationId: data.data?.currentAppInstallation?.id,
+    collections: data.data?.collections?.nodes ?? [],
     settings,
     shopName: data.data?.shop?.name ?? "your store",
   };
 }
 
-export const loader = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  return loadDashboardData(admin);
-};
+async function createAutomaticDiscount(admin) {
+  const result = await queryJson(
+    admin,
+    `#graphql
+      mutation CreateRupeeDealDiscount($automaticAppDiscount: DiscountAutomaticAppInput!) {
+        discountAutomaticAppCreate(automaticAppDiscount: $automaticAppDiscount) {
+          automaticAppDiscount {
+            discountId
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `,
+    {
+      automaticAppDiscount: {
+        title: DISCOUNT_TITLE,
+        functionHandle: FUNCTION_HANDLE,
+        startsAt: new Date().toISOString(),
+        discountClasses: ["PRODUCT"],
+        combinesWith: {
+          orderDiscounts: false,
+          productDiscounts: false,
+          shippingDiscounts: false,
+        },
+      },
+    },
+  );
 
-export const action = async ({ request }) => {
-  const { admin } = await authenticate.admin(request);
-  const formData = await request.formData();
+  const payload = result.data?.discountAutomaticAppCreate;
+  const error = getFirstUserError(payload);
 
-  const thresholdValue = Number(formData.get("threshold") || DEFAULT_THRESHOLD);
-  const enabled = formData.get("enabled") === "on";
-
-  if (!Number.isFinite(thresholdValue) || thresholdValue < 1) {
-    return {
-      ok: false,
-      error: "Minimum cart subtotal must be at least Rs 1.",
-    };
-  }
-
-  const dashboardData = await loadDashboardData(admin);
-  const appInstallationId = dashboardData.appInstallationId;
-
-  if (!appInstallationId) {
-    return {
-      ok: false,
-      error: "Unable to find the current app installation for saving settings.",
-    };
-  }
-
-  const nextSettings = {
-    enabled,
-    threshold: Math.round(thresholdValue),
-    updatedAt: new Date().toISOString(),
+  return {
+    discountId: payload?.automaticAppDiscount?.discountId ?? "",
+    error,
   };
+}
 
-  const saveResult = await queryJson(
+async function updateAutomaticDiscount(admin, discountId) {
+  const result = await queryJson(
+    admin,
+    `#graphql
+      mutation UpdateRupeeDealDiscount($id: ID!, $automaticAppDiscount: DiscountAutomaticAppInput!) {
+        discountAutomaticAppUpdate(id: $id, automaticAppDiscount: $automaticAppDiscount) {
+          automaticAppDiscount {
+            discountId
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `,
+    {
+      id: discountId,
+      automaticAppDiscount: {
+        title: DISCOUNT_TITLE,
+        startsAt: new Date().toISOString(),
+        discountClasses: ["PRODUCT"],
+        combinesWith: {
+          orderDiscounts: false,
+          productDiscounts: false,
+          shippingDiscounts: false,
+        },
+      },
+    },
+  );
+
+  const payload = result.data?.discountAutomaticAppUpdate;
+  const error = getFirstUserError(payload);
+
+  return {
+    discountId: payload?.automaticAppDiscount?.discountId ?? "",
+    error,
+  };
+}
+
+async function ensureAutomaticDiscount(admin, currentDiscountId) {
+  if (currentDiscountId) {
+    const updated = await updateAutomaticDiscount(admin, currentDiscountId);
+    if (!updated.error && updated.discountId) {
+      return updated;
+    }
+  }
+
+  return createAutomaticDiscount(admin);
+}
+
+async function saveDiscountConfiguration(admin, discountId, configuration) {
+  const result = await queryJson(
+    admin,
+    `#graphql
+      mutation SaveRupeeDealFunctionConfig($metafields: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $metafields) {
+          metafields {
+            key
+            namespace
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `,
+    {
+      metafields: [
+        {
+          ownerId: discountId,
+          namespace: FUNCTION_CONFIG_NAMESPACE,
+          key: FUNCTION_CONFIG_KEY,
+          type: "json",
+          value: JSON.stringify(configuration),
+        },
+      ],
+    },
+  );
+
+  return getFirstUserError(result.data?.metafieldsSet);
+}
+
+async function saveDashboardSettings(admin, appInstallationId, settings) {
+  const result = await queryJson(
     admin,
     `#graphql
       mutation SaveRupeeOneDealSettings($metafields: [MetafieldsSetInput!]!) {
@@ -168,29 +290,110 @@ export const action = async ({ request }) => {
           namespace: SETTINGS_METAFIELD_NAMESPACE,
           key: SETTINGS_METAFIELD_KEY,
           type: "json",
-          value: JSON.stringify(nextSettings),
+          value: JSON.stringify(settings),
         },
       ],
     },
   );
 
-  const userErrors = saveResult.data?.metafieldsSet?.userErrors ?? [];
-  if (userErrors.length > 0) {
+  return getFirstUserError(result.data?.metafieldsSet);
+}
+
+export const loader = async ({ request }) => {
+  const { admin } = await authenticate.admin(request);
+  return loadDashboardData(admin);
+};
+
+export const action = async ({ request }) => {
+  const { admin } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const dashboardData = await loadDashboardData(admin);
+
+  const thresholdValue = Number(formData.get("threshold") || DEFAULT_THRESHOLD);
+  const enabled = formData.get("enabled") === "on";
+  const collectionId = String(formData.get("collectionId") || "");
+  const selectedCollection =
+    dashboardData.collections.find((collection) => collection.id === collectionId) ?? null;
+
+  if (!Number.isFinite(thresholdValue) || thresholdValue < 1) {
     return {
       ok: false,
-      error: userErrors[0].message,
+      error: "Minimum cart subtotal must be at least Rs 1.",
+    };
+  }
+
+  if (enabled && !selectedCollection) {
+    return {
+      ok: false,
+      error: "Select the collection page that should unlock the 1 Rs deal.",
+    };
+  }
+
+  if (!dashboardData.appInstallationId) {
+    return {
+      ok: false,
+      error: "Unable to find the current app installation for saving settings.",
+    };
+  }
+
+  const ensuredDiscount = await ensureAutomaticDiscount(
+    admin,
+    dashboardData.settings.discountId,
+  );
+
+  if (!ensuredDiscount.discountId) {
+    return {
+      ok: false,
+      error:
+        ensuredDiscount.error ??
+        "Unable to activate the Shopify automatic discount for the 1 Rs deal.",
+    };
+  }
+
+  const nextSettings = {
+    enabled,
+    threshold: Math.round(thresholdValue),
+    collectionId: selectedCollection?.id ?? "",
+    collectionTitle: selectedCollection?.title ?? "",
+    discountId: ensuredDiscount.discountId,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const functionConfigError = await saveDiscountConfiguration(
+    admin,
+    ensuredDiscount.discountId,
+    createFunctionConfiguration(nextSettings),
+  );
+
+  if (functionConfigError) {
+    return {
+      ok: false,
+      error: functionConfigError,
+    };
+  }
+
+  const settingsSaveError = await saveDashboardSettings(
+    admin,
+    dashboardData.appInstallationId,
+    nextSettings,
+  );
+
+  if (settingsSaveError) {
+    return {
+      ok: false,
+      error: settingsSaveError,
     };
   }
 
   return {
     ok: true,
-    message: "1 Rs deal settings saved.",
+    message: "1 Rs deal settings saved and Shopify discount activated.",
     settings: nextSettings,
   };
 };
 
 export default function Index() {
-  const { settings, shopName } = useLoaderData();
+  const { collections, settings, shopName } = useLoaderData();
   const fetcher = useFetcher();
   const shopify = useAppBridge();
   const currentSettings = fetcher.data?.settings ?? settings;
@@ -207,7 +410,10 @@ export default function Index() {
   const cartSnippet = `{
   merchandiseId: "gid://shopify/ProductVariant/REPLACE_ME",
   quantity: 1,
-  attributes: [{ key: "_offer_type", value: "unlock_offer" }]
+  attributes: [
+    { key: "_offer_type", value: "unlock_offer" },
+    { key: "_offer_collection_id", value: "${currentSettings.collectionId || "gid://shopify/Collection/REPLACE_ME"}" }
+  ]
 }`;
 
   return (
@@ -224,9 +430,9 @@ export default function Index() {
           <div style={cardStyles}>
             <s-heading>Deal settings</s-heading>
             <p style={helpTextStyles}>
-              Theme already handles the offer UI and marks the chosen line with
-              <code> _offer_type=unlock_offer </code>. This app only controls
-              whether the deal is enabled and what cart subtotal unlocks it.
+              Theme offer UI handle karti hai. App automatic Shopify discount ko
+              activate karke sirf selected collection-page item ki real billed
+              price Rs 1 tak le jaati hai.
             </p>
 
             <fetcher.Form method="post" style={{ display: "grid", gap: "1rem" }}>
@@ -254,16 +460,26 @@ export default function Index() {
                 </p>
               </label>
 
-              <div style={fieldStyles}>
-                <span>Eligible offer source</span>
-                <div style={{ ...inputStyles, color: "#5c5f62" }}>
-                  Theme collection page products only, up to Rs 600
-                </div>
+              <label style={fieldStyles}>
+                <span>Eligible collection page</span>
+                <select
+                  name="collectionId"
+                  defaultValue={currentSettings.collectionId}
+                  style={inputStyles}
+                >
+                  <option value="">Select a collection</option>
+                  {collections.map((collection) => (
+                    <option key={collection.id} value={collection.id}>
+                      {collection.title} ({collection.handle})
+                    </option>
+                  ))}
+                </select>
                 <p style={helpTextStyles}>
-                  Theme collection page se shopper product choose karega. App
-                  billing side par sirf marked item ko validate karegi.
+                  Sirf isi collection page se chosen item 1 Rs deal ke liye
+                  eligible hoga. Theme ko same collection ID cart attribute me
+                  bhejni hogi.
                 </p>
-              </div>
+              </label>
 
               {fetcher.data?.error ? (
                 <s-banner tone="critical">
@@ -294,11 +510,10 @@ export default function Index() {
                 Threshold: Rs {currentSettings.threshold}
               </p>
               <p style={helpTextStyles}>
-                Theme collection page decides which single offer item the shopper
-                picks.
+                Collection: {currentSettings.collectionTitle || "Not selected"}
               </p>
               <p style={helpTextStyles}>
-                Marked offer item price must be Rs 600 or below.
+                Marked offer item price must be Rs {MAX_OFFER_PRICE} or below.
               </p>
             </div>
 
@@ -327,8 +542,9 @@ export default function Index() {
               <s-heading>How billing works</s-heading>
               <p style={helpTextStyles}>
                 If non-offer cart subtotal is Rs {currentSettings.threshold}+ and
-                the marked collection-page item costs Rs 600 or less, the Shopify
-                Discount Function reduces that line so customer pays final Rs 1.
+                the marked item belongs to the selected collection page and costs
+                Rs {MAX_OFFER_PRICE} or less, the Shopify Discount Function reduces
+                that line so customer pays final Rs 1.
               </p>
             </div>
           </div>

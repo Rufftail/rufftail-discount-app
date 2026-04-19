@@ -26,6 +26,14 @@ scopes = "write_products,write_metaobjects,write_metaobject_definitions,write_di
 [auth]
 redirect_urls = [ "https://rufftail-discount-app.onrender.com/auth/callback", "https://rufftail-discount-app.onrender.com/auth/shopify/callback" ]
 
+[discount.metafields.app.function-configuration]
+type = "json"
+name = "Function configuration"
+
+  [discount.metafields.app.function-configuration.access]
+  admin = "merchant_read_write"
+  storefront = "none"
+
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
 name = "Demo Source Info"

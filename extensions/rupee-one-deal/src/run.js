@@ -1,6 +1,6 @@
 import { DiscountApplicationStrategy } from "../generated/api";
 
-export const QUALIFYING_SUBTOTAL_THRESHOLD = 2999;
+export const DEFAULT_THRESHOLD = 2999;
 export const ONE_RUPEE_FINAL_PRICE = 1.0;
 export const MAX_OFFER_UNIT_PRICE = 600;
 export const OFFER_TYPE_ATTRIBUTE = "unlock_offer";
@@ -21,6 +21,26 @@ function getLineUnitPrice(line) {
   return Number(line.cost?.amountPerQuantity?.amount ?? 0);
 }
 
+function parseConfiguration(input) {
+  const config = input.discountNode?.metafield?.jsonValue;
+
+  if (!config || typeof config !== "object") {
+    return {
+      enabled: true,
+      threshold: DEFAULT_THRESHOLD,
+      collectionId: "",
+      maxOfferPrice: MAX_OFFER_UNIT_PRICE,
+    };
+  }
+
+  return {
+    enabled: config.enabled ?? true,
+    threshold: Number(config.threshold ?? DEFAULT_THRESHOLD),
+    collectionId: String(config.collectionId ?? ""),
+    maxOfferPrice: Number(config.maxOfferPrice ?? MAX_OFFER_UNIT_PRICE),
+  };
+}
+
 /**
  * Unlock exactly one marked offer item for Rs 1 once the rest of the cart
  * reaches the qualifying subtotal threshold.
@@ -30,14 +50,16 @@ function getLineUnitPrice(line) {
  */
 export function run(input) {
   const lines = input.cart?.lines ?? [];
+  const config = parseConfiguration(input);
 
-  if (!lines.length) {
+  if (!config.enabled || !config.collectionId || !lines.length) {
     return emptyDiscountResult();
   }
 
   const offerLines = lines.filter(
     (line) =>
       line.offerType?.value === OFFER_TYPE_ATTRIBUTE &&
+      line.offerCollectionId?.value === config.collectionId &&
       line.merchandise?.__typename === "ProductVariant" &&
       line.quantity > 0,
   );
@@ -50,14 +72,14 @@ export function run(input) {
     .filter((line) => line.offerType?.value !== OFFER_TYPE_ATTRIBUTE)
     .reduce((sum, line) => sum + getLineSubtotal(line), 0);
 
-  if (qualifyingSubtotal < QUALIFYING_SUBTOTAL_THRESHOLD) {
+  if (qualifyingSubtotal < config.threshold) {
     return emptyDiscountResult();
   }
 
   const offerLine = offerLines.find(
     (line) =>
       getLineUnitPrice(line) > ONE_RUPEE_FINAL_PRICE &&
-      getLineUnitPrice(line) <= MAX_OFFER_UNIT_PRICE,
+      getLineUnitPrice(line) <= config.maxOfferPrice,
   );
 
   if (!offerLine) {
