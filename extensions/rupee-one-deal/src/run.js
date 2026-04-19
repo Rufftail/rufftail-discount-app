@@ -41,6 +41,15 @@ function parseConfiguration(input) {
   };
 }
 
+function matchesConfiguredCollection(line, collectionId) {
+  if (!collectionId) {
+    return false;
+  }
+
+  const markedCollectionId = line.offerCollectionId?.value?.trim();
+  return markedCollectionId === collectionId;
+}
+
 /**
  * Unlock exactly one marked offer item for Rs 1 once the rest of the cart
  * reaches the qualifying subtotal threshold.
@@ -59,7 +68,7 @@ export function run(input) {
   const offerLines = lines.filter(
     (line) =>
       line.offerType?.value === OFFER_TYPE_ATTRIBUTE &&
-      line.offerCollectionId?.value === config.collectionId &&
+      matchesConfiguredCollection(line, config.collectionId) &&
       line.merchandise?.__typename === "ProductVariant" &&
       line.quantity > 0,
   );

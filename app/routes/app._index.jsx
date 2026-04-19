@@ -12,7 +12,7 @@ const DEFAULT_THRESHOLD = 2999;
 const MAX_OFFER_PRICE = 600;
 const FUNCTION_HANDLE = "rupee-one-deal";
 const DISCOUNT_TITLE = "Rufftail 1 Rs Deal";
-const PREFERRED_COLLECTION_TITLE = "Under ₹600 – Best Pet Deals";
+const PREFERRED_COLLECTION_TITLE = "Under \u20B9600 \u2013 Best Pet Deals";
 
 const pageStyles = {
   display: "grid",

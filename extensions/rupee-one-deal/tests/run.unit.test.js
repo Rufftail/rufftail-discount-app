@@ -124,6 +124,26 @@ describe("rupee one deal function", () => {
     });
   });
 
+  test("skips the discount when the theme does not send the collection marker", () => {
+    const result = run(
+      createInput([
+        createCartLine({
+          id: "qualifying-line",
+          subtotal: DEFAULT_THRESHOLD + 500,
+          unitPrice: DEFAULT_THRESHOLD + 500,
+        }),
+        createCartLine({
+          id: "offer-line",
+          subtotal: 499,
+          unitPrice: 499,
+          offerType: "unlock_offer",
+        }),
+      ]),
+    );
+
+    expect(result.discounts).toEqual([]);
+  });
+
   test("does not count the offer item itself toward the threshold", () => {
     const result = run(
       createInput([
