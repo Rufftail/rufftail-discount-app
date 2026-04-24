@@ -12,6 +12,12 @@ const DEFAULT_THRESHOLD = 2999;
 const MAX_OFFER_PRICE = 600;
 const FUNCTION_HANDLE = "rupee-one-deal";
 const DISCOUNT_TITLE = "Rufftail 1 Rs Deal";
+const SAVE5_TITLE = "Rufftail SAVE5";
+const SAVE8_TITLE = "Rufftail SAVE8";
+const SAVE5_CODE = "SAVE5";
+const SAVE8_CODE = "SAVE8";
+const SAVE5_THRESHOLD = 6999;
+const SAVE8_THRESHOLD = 9999;
 const PREFERRED_COLLECTION_TITLE = "Under \u20B9600 \u2013 Best Pet Deals";
 
 const pageStyles = {
@@ -58,6 +64,9 @@ function defaultSettings() {
     threshold: DEFAULT_THRESHOLD,
     collectionId: "",
     collectionTitle: "",
+    autoDiscountId: "",
+    save5DiscountId: "",
+    save8DiscountId: "",
     discountId: "",
     updatedAt: null,
   };
@@ -76,7 +85,10 @@ function parseSettings(value) {
       threshold: Number(parsed.threshold ?? DEFAULT_THRESHOLD),
       collectionId: parsed.collectionId ?? "",
       collectionTitle: parsed.collectionTitle ?? "",
-      discountId: parsed.discountId ?? "",
+      autoDiscountId: parsed.autoDiscountId ?? parsed.discountId ?? "",
+      save5DiscountId: parsed.save5DiscountId ?? "",
+      save8DiscountId: parsed.save8DiscountId ?? "",
+      discountId: parsed.autoDiscountId ?? parsed.discountId ?? "",
       updatedAt: parsed.updatedAt ?? null,
     };
   } catch {
@@ -90,6 +102,39 @@ function createFunctionConfiguration(settings) {
     threshold: settings.threshold,
     collectionId: settings.collectionId,
     maxOfferPrice: MAX_OFFER_PRICE,
+    slabs: [
+      { code: SAVE5_CODE, threshold: SAVE5_THRESHOLD, percentage: 5 },
+      { code: SAVE8_CODE, threshold: SAVE8_THRESHOLD, percentage: 8 },
+    ],
+  };
+}
+
+function getAutomaticDiscountInput() {
+  return {
+    title: DISCOUNT_TITLE,
+    functionHandle: FUNCTION_HANDLE,
+    startsAt: new Date().toISOString(),
+    discountClasses: ["PRODUCT"],
+    combinesWith: {
+      orderDiscounts: false,
+      productDiscounts: false,
+      shippingDiscounts: false,
+    },
+  };
+}
+
+function getCodeDiscountInput({ title, code }) {
+  return {
+    title,
+    code,
+    functionHandle: FUNCTION_HANDLE,
+    startsAt: new Date().toISOString(),
+    discountClasses: ["PRODUCT", "ORDER"],
+    combinesWith: {
+      orderDiscounts: false,
+      productDiscounts: false,
+      shippingDiscounts: false,
+    },
   };
 }
 
@@ -175,17 +220,7 @@ async function createAutomaticDiscount(admin) {
       }
     `,
     {
-      automaticAppDiscount: {
-        title: DISCOUNT_TITLE,
-        functionHandle: FUNCTION_HANDLE,
-        startsAt: new Date().toISOString(),
-        discountClasses: ["PRODUCT"],
-        combinesWith: {
-          orderDiscounts: true,
-          productDiscounts: false,
-          shippingDiscounts: false,
-        },
-      },
+      automaticAppDiscount: getAutomaticDiscountInput(),
     },
   );
 
@@ -216,16 +251,7 @@ async function updateAutomaticDiscount(admin, discountId) {
     `,
     {
       id: discountId,
-      automaticAppDiscount: {
-        title: DISCOUNT_TITLE,
-        startsAt: new Date().toISOString(),
-        discountClasses: ["PRODUCT"],
-        combinesWith: {
-          orderDiscounts: true,
-          productDiscounts: false,
-          shippingDiscounts: false,
-        },
-      },
+      automaticAppDiscount: getAutomaticDiscountInput(),
     },
   );
 
@@ -247,6 +273,78 @@ async function ensureAutomaticDiscount(admin, currentDiscountId) {
   }
 
   return createAutomaticDiscount(admin);
+}
+
+async function createCodeDiscount(admin, title, code) {
+  const result = await queryJson(
+    admin,
+    `#graphql
+      mutation CreateRupeeDealCodeDiscount($codeAppDiscount: DiscountCodeAppInput!) {
+        discountCodeAppCreate(codeAppDiscount: $codeAppDiscount) {
+          codeAppDiscount {
+            discountId
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `,
+    {
+      codeAppDiscount: getCodeDiscountInput({ title, code }),
+    },
+  );
+
+  const payload = result.data?.discountCodeAppCreate;
+  const error = getFirstUserError(payload);
+
+  return {
+    discountId: payload?.codeAppDiscount?.discountId ?? "",
+    error,
+  };
+}
+
+async function updateCodeDiscount(admin, discountId, title, code) {
+  const result = await queryJson(
+    admin,
+    `#graphql
+      mutation UpdateRupeeDealCodeDiscount($id: ID!, $codeAppDiscount: DiscountCodeAppInput!) {
+        discountCodeAppUpdate(id: $id, codeAppDiscount: $codeAppDiscount) {
+          codeAppDiscount {
+            discountId
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `,
+    {
+      id: discountId,
+      codeAppDiscount: getCodeDiscountInput({ title, code }),
+    },
+  );
+
+  const payload = result.data?.discountCodeAppUpdate;
+  const error = getFirstUserError(payload);
+
+  return {
+    discountId: payload?.codeAppDiscount?.discountId ?? "",
+    error,
+  };
+}
+
+async function ensureCodeDiscount(admin, currentDiscountId, title, code) {
+  if (currentDiscountId) {
+    const updated = await updateCodeDiscount(admin, currentDiscountId, title, code);
+    if (!updated.error && updated.discountId) {
+      return updated;
+    }
+  }
+
+  return createCodeDiscount(admin, title, code);
 }
 
 async function saveDiscountConfiguration(admin, discountId, configuration) {
@@ -353,17 +451,49 @@ export const action = async ({ request }) => {
     };
   }
 
-  const ensuredDiscount = await ensureAutomaticDiscount(
+  const ensuredAutoDiscount = await ensureAutomaticDiscount(
     admin,
-    dashboardData.settings.discountId,
+    dashboardData.settings.autoDiscountId,
   );
 
-  if (!ensuredDiscount.discountId) {
+  if (!ensuredAutoDiscount.discountId) {
     return {
       ok: false,
       error:
-        ensuredDiscount.error ??
+        ensuredAutoDiscount.error ??
         "Unable to activate the Shopify automatic discount for the 1 Rs deal.",
+    };
+  }
+
+  const ensuredSave5Discount = await ensureCodeDiscount(
+    admin,
+    dashboardData.settings.save5DiscountId,
+    SAVE5_TITLE,
+    SAVE5_CODE,
+  );
+
+  if (!ensuredSave5Discount.discountId) {
+    return {
+      ok: false,
+      error:
+        ensuredSave5Discount.error ??
+        "Unable to activate the SAVE5 code discount for the 1 Rs deal slabs.",
+    };
+  }
+
+  const ensuredSave8Discount = await ensureCodeDiscount(
+    admin,
+    dashboardData.settings.save8DiscountId,
+    SAVE8_TITLE,
+    SAVE8_CODE,
+  );
+
+  if (!ensuredSave8Discount.discountId) {
+    return {
+      ok: false,
+      error:
+        ensuredSave8Discount.error ??
+        "Unable to activate the SAVE8 code discount for the 1 Rs deal slabs.",
     };
   }
 
@@ -372,21 +502,33 @@ export const action = async ({ request }) => {
     threshold: Math.round(thresholdValue),
     collectionId: selectedCollection?.id ?? "",
     collectionTitle: selectedCollection?.title ?? "",
-    discountId: ensuredDiscount.discountId,
+    autoDiscountId: ensuredAutoDiscount.discountId,
+    save5DiscountId: ensuredSave5Discount.discountId,
+    save8DiscountId: ensuredSave8Discount.discountId,
+    discountId: ensuredAutoDiscount.discountId,
     updatedAt: new Date().toISOString(),
   };
 
-  const functionConfigError = await saveDiscountConfiguration(
-    admin,
-    ensuredDiscount.discountId,
-    createFunctionConfiguration(nextSettings),
-  );
+  const configuration = createFunctionConfiguration(nextSettings);
+  const managedDiscountIds = [
+    ensuredAutoDiscount.discountId,
+    ensuredSave5Discount.discountId,
+    ensuredSave8Discount.discountId,
+  ];
 
-  if (functionConfigError) {
-    return {
-      ok: false,
-      error: functionConfigError,
-    };
+  for (const managedDiscountId of managedDiscountIds) {
+    const functionConfigError = await saveDiscountConfiguration(
+      admin,
+      managedDiscountId,
+      configuration,
+    );
+
+    if (functionConfigError) {
+      return {
+        ok: false,
+        error: functionConfigError,
+      };
+    }
   }
 
   const settingsSaveError = await saveDashboardSettings(
@@ -404,7 +546,7 @@ export const action = async ({ request }) => {
 
   return {
     ok: true,
-    message: "1 Rs deal settings saved and Shopify discount activated.",
+    message: "1 Rs deal, SAVE5 and SAVE8 discount settings saved.",
     settings: nextSettings,
   };
 };
@@ -449,7 +591,8 @@ export default function Index() {
             <p style={helpTextStyles}>
               Theme offer UI handle karti hai. App automatic Shopify discount ko
               activate karke sirf selected collection-page item ki real billed
-              price Rs 1 tak le jaati hai.
+              price Rs 1 tak le jaati hai. SAVE5 and SAVE8 codes ko bhi isi
+              function ke through slab order discount ke saath handle karti hai.
             </p>
 
             <fetcher.Form method="post" style={{ display: "grid", gap: "1rem" }}>
@@ -532,6 +675,10 @@ export default function Index() {
               <p style={helpTextStyles}>
                 Marked offer item price must be Rs {MAX_OFFER_PRICE} or below.
               </p>
+              <p style={helpTextStyles}>
+                Codes: {SAVE5_CODE} gives 5% off at Rs {SAVE5_THRESHOLD}+ and{" "}
+                {SAVE8_CODE} gives 8% off at Rs {SAVE8_THRESHOLD}+.
+              </p>
             </div>
 
             <div style={cardStyles}>
@@ -561,9 +708,10 @@ export default function Index() {
                 If non-offer cart subtotal is Rs {currentSettings.threshold}+ and
                 the marked item belongs to the selected collection page and costs
                 Rs {MAX_OFFER_PRICE} or less, the Shopify Discount Function reduces
-                that line so customer pays final Rs 1. This rule checks the
-                pre-discount subtotal of the rest of the cart, then combines with
-                order discounts like SAVE50 or SAVE150.
+                that line so customer pays final Rs 1. SAVE5 applies 5% at Rs{" "}
+                {SAVE5_THRESHOLD}+ and SAVE8 applies 8% at Rs {SAVE8_THRESHOLD}+.
+                The offer line is excluded from the percentage discount so it
+                stays at Rs 1.
               </p>
             </div>
           </div>

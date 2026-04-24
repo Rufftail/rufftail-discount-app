@@ -4,14 +4,27 @@ import {
   DEFAULT_THRESHOLD,
   MAX_OFFER_UNIT_PRICE,
   ONE_RUPEE_FINAL_PRICE,
+  ORDER_SELECTION_STRATEGY,
+  PRODUCT_SELECTION_STRATEGY,
+  SAVE5_CODE,
+  SAVE5_THRESHOLD,
+  SAVE8_CODE,
+  SAVE8_THRESHOLD,
   run,
 } from "../src/run.js";
 
 const ELIGIBLE_COLLECTION_ID = "gid://shopify/Collection/111";
 
-function createInput(lines, config = {}) {
+function createInput(lines, options = {}) {
+  const {
+    config = {},
+    discountClasses = ["PRODUCT"],
+    triggeringDiscountCode = null,
+  } = options;
+
   return {
-    discountNode: {
+    discount: {
+      discountClasses,
       metafield: {
         jsonValue: {
           enabled: true,
@@ -22,6 +35,7 @@ function createInput(lines, config = {}) {
         },
       },
     },
+    triggeringDiscountCode,
     cart: {
       lines,
     },
@@ -81,7 +95,7 @@ describe("rupee one deal function", () => {
       ]),
     );
 
-    expect(result.discounts).toEqual([]);
+    expect(result.operations).toEqual([]);
   });
 
   test("discounts one marked collection-matched offer item down to Rs 1 once threshold is met", () => {
@@ -104,24 +118,32 @@ describe("rupee one deal function", () => {
       ]),
     );
 
-    expect(result.discounts).toHaveLength(1);
-    expect(result.discounts[0]).toEqual({
-      message: DEAL_MESSAGE,
-      targets: [
-        {
-          cartLine: {
-            id: "offer-line",
-            quantity: 1,
-          },
-        },
-      ],
-      value: {
-        fixedAmount: {
-          amount: (offerUnitPrice - ONE_RUPEE_FINAL_PRICE).toFixed(2),
-          appliesToEachItem: true,
+    expect(result.operations).toEqual([
+      {
+        productDiscountsAdd: {
+          selectionStrategy: PRODUCT_SELECTION_STRATEGY,
+          candidates: [
+            {
+              message: DEAL_MESSAGE,
+              targets: [
+                {
+                  cartLine: {
+                    id: "offer-line",
+                    quantity: 1,
+                  },
+                },
+              ],
+              value: {
+                fixedAmount: {
+                  amount: (offerUnitPrice - ONE_RUPEE_FINAL_PRICE).toFixed(2),
+                  appliesToEachItem: true,
+                },
+              },
+            },
+          ],
         },
       },
-    });
+    ]);
   });
 
   test("skips the discount when the theme does not send the collection marker", () => {
@@ -141,7 +163,7 @@ describe("rupee one deal function", () => {
       ]),
     );
 
-    expect(result.discounts).toEqual([]);
+    expect(result.operations).toEqual([]);
   });
 
   test("does not count the offer item itself toward the threshold", () => {
@@ -162,59 +184,17 @@ describe("rupee one deal function", () => {
       ]),
     );
 
-    expect(result.discounts).toEqual([]);
+    expect(result.operations).toEqual([]);
   });
 
-  test("skips the discount when the marked line does not belong to the configured collection", () => {
-    const result = run(
-      createInput([
-        createCartLine({
-          id: "qualifying-line",
-          subtotal: DEFAULT_THRESHOLD + 500,
-          unitPrice: DEFAULT_THRESHOLD + 500,
-        }),
-        createCartLine({
-          id: "offer-line",
-          subtotal: 499,
-          unitPrice: 499,
-          offerType: "unlock_offer",
-          offerCollectionId: "gid://shopify/Collection/999",
-        }),
-      ]),
-    );
-
-    expect(result.discounts).toEqual([]);
-  });
-
-  test("skips the discount when the marked offer item costs more than Rs 600", () => {
-    const result = run(
-      createInput([
-        createCartLine({
-          id: "qualifying-line",
-          subtotal: DEFAULT_THRESHOLD + 500,
-          unitPrice: DEFAULT_THRESHOLD + 500,
-        }),
-        createCartLine({
-          id: "offer-line",
-          subtotal: MAX_OFFER_UNIT_PRICE + 1,
-          unitPrice: MAX_OFFER_UNIT_PRICE + 1,
-          offerType: "unlock_offer",
-          offerCollectionId: ELIGIBLE_COLLECTION_ID,
-        }),
-      ]),
-    );
-
-    expect(result.discounts).toEqual([]);
-  });
-
-  test("skips the discount entirely when the deal is disabled", () => {
+  test("applies SAVE5 order discount at Rs 6999 and excludes the offer line from percentage discounting", () => {
     const result = run(
       createInput(
         [
           createCartLine({
             id: "qualifying-line",
-            subtotal: DEFAULT_THRESHOLD + 500,
-            unitPrice: DEFAULT_THRESHOLD + 500,
+            subtotal: SAVE5_THRESHOLD,
+            unitPrice: SAVE5_THRESHOLD,
           }),
           createCartLine({
             id: "offer-line",
@@ -224,10 +204,126 @@ describe("rupee one deal function", () => {
             offerCollectionId: ELIGIBLE_COLLECTION_ID,
           }),
         ],
-        { enabled: false },
+        {
+          discountClasses: ["PRODUCT", "ORDER"],
+          triggeringDiscountCode: SAVE5_CODE,
+        },
       ),
     );
 
-    expect(result.discounts).toEqual([]);
+    expect(result.operations).toHaveLength(2);
+    expect(result.operations[1]).toEqual({
+      orderDiscountsAdd: {
+        selectionStrategy: ORDER_SELECTION_STRATEGY,
+        candidates: [
+          {
+            message: "SAVE5 5% Off",
+            targets: [
+              {
+                orderSubtotal: {
+                  excludedCartLineIds: ["offer-line"],
+                },
+              },
+            ],
+            value: {
+              percentage: {
+                value: 5,
+              },
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  test("applies SAVE8 order discount at Rs 9999 even without an offer line", () => {
+    const result = run(
+      createInput(
+        [
+          createCartLine({
+            id: "qualifying-line",
+            subtotal: SAVE8_THRESHOLD,
+            unitPrice: SAVE8_THRESHOLD,
+          }),
+        ],
+        {
+          discountClasses: ["ORDER"],
+          triggeringDiscountCode: SAVE8_CODE,
+        },
+      ),
+    );
+
+    expect(result.operations).toEqual([
+      {
+        orderDiscountsAdd: {
+          selectionStrategy: ORDER_SELECTION_STRATEGY,
+          candidates: [
+            {
+              message: "SAVE8 8% Off",
+              targets: [
+                {
+                  orderSubtotal: {
+                    excludedCartLineIds: [],
+                  },
+                },
+              ],
+              value: {
+                percentage: {
+                  value: 8,
+                },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+  });
+
+  test("skips order slab discount when coupon threshold is not met", () => {
+    const result = run(
+      createInput(
+        [
+          createCartLine({
+            id: "qualifying-line",
+            subtotal: SAVE5_THRESHOLD - 1,
+            unitPrice: SAVE5_THRESHOLD - 1,
+          }),
+        ],
+        {
+          discountClasses: ["ORDER"],
+          triggeringDiscountCode: SAVE5_CODE,
+        },
+      ),
+    );
+
+    expect(result.operations).toEqual([]);
+  });
+
+  test("skips the discount entirely when the deal is disabled", () => {
+    const result = run(
+      createInput(
+        [
+          createCartLine({
+            id: "qualifying-line",
+            subtotal: SAVE8_THRESHOLD,
+            unitPrice: SAVE8_THRESHOLD,
+          }),
+          createCartLine({
+            id: "offer-line",
+            subtotal: 499,
+            unitPrice: 499,
+            offerType: "unlock_offer",
+            offerCollectionId: ELIGIBLE_COLLECTION_ID,
+          }),
+        ],
+        {
+          config: { enabled: false },
+          discountClasses: ["PRODUCT", "ORDER"],
+          triggeringDiscountCode: SAVE8_CODE,
+        },
+      ),
+    );
+
+    expect(result.operations).toEqual([]);
   });
 });

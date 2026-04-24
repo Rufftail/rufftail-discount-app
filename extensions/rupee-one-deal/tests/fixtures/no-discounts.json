@@ -1,15 +1,19 @@
 {
   "payload": {
-    "export": "run",
-    "target": "purchase.product-discount.run",
+    "export": "cart-lines-discounts-generate-run",
+    "target": "cart.lines.discounts.generate.run",
     "input": {
-      "discountNode": {
+      "discount": {
+        "discountClasses": [],
         "metafield": null
+      },
+      "triggeringDiscountCode": null,
+      "cart": {
+        "lines": []
       }
     },
     "output": {
-      "discountApplicationStrategy": "FIRST",
-      "discounts": []
+      "operations": []
     }
   }
 }

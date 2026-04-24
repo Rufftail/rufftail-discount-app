@@ -8,9 +8,9 @@ uid = "efecf614-24d9-4f00-0aed-b276c32fc389778a4fe4"
 description = "t:description"
 
   [[extensions.targeting]]
-  target = "purchase.product-discount.run"
+  target = "cart.lines.discounts.generate.run"
   input_query = "src/run.graphql"
-  export = "run"
+  export = "cart-lines-discounts-generate-run"
 
   [extensions.build]
   command = ""

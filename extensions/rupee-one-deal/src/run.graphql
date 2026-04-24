@@ -1,9 +1,11 @@
 query RunInput {
-  discountNode {
+  discount {
+    discountClasses
     metafield(namespace: "$app:rupee-one-deal", key: "function-configuration") {
       jsonValue
     }
   }
+  triggeringDiscountCode
   cart {
     lines {
       id
