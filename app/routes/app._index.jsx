@@ -181,7 +181,7 @@ async function createAutomaticDiscount(admin) {
         startsAt: new Date().toISOString(),
         discountClasses: ["PRODUCT"],
         combinesWith: {
-          orderDiscounts: false,
+          orderDiscounts: true,
           productDiscounts: false,
           shippingDiscounts: false,
         },
@@ -221,7 +221,7 @@ async function updateAutomaticDiscount(admin, discountId) {
         startsAt: new Date().toISOString(),
         discountClasses: ["PRODUCT"],
         combinesWith: {
-          orderDiscounts: false,
+          orderDiscounts: true,
           productDiscounts: false,
           shippingDiscounts: false,
         },
@@ -472,8 +472,8 @@ export default function Index() {
                   style={inputStyles}
                 />
                 <p style={helpTextStyles}>
-                  Offer item ko hata kar baaki cart total is amount tak pahunchna
-                  chahiye.
+                  Offer item ko hata kar baaki cart subtotal is amount tak pahunchna
+                  chahiye. Order coupon ke baad wala discounted total use nahi hota.
                 </p>
               </label>
 
@@ -561,7 +561,9 @@ export default function Index() {
                 If non-offer cart subtotal is Rs {currentSettings.threshold}+ and
                 the marked item belongs to the selected collection page and costs
                 Rs {MAX_OFFER_PRICE} or less, the Shopify Discount Function reduces
-                that line so customer pays final Rs 1.
+                that line so customer pays final Rs 1. This rule checks the
+                pre-discount subtotal of the rest of the cart, then combines with
+                order discounts like SAVE50 or SAVE150.
               </p>
             </div>
           </div>
